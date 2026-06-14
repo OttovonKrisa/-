@@ -15,6 +15,7 @@ import { INITIAL_STATIONS } from './initialData';
 import { DetailsModal } from './components/DetailsModal';
 import { AdminPanel } from './components/AdminPanel';
 import { SleepOverlay } from './components/SleepOverlay';
+import { OfflineMap } from './components/OfflineMap';
 import { db, isFirebaseEnabled, handleFirestoreError, OperationType } from './firebase';
 import { collection, onSnapshot, doc, setDoc, deleteDoc } from 'firebase/firestore';
 
@@ -22,6 +23,10 @@ export default function App() {
   const [stations, setStations] = useState<Station[]>([]);
   const [selectedStation, setSelectedStation] = useState<Station | null>(null);
   const [activeDetails, setActiveDetails] = useState<Station | null>(null);
+  
+  // Yandex Maps script states & Offline detection
+  const [isMapOffline, setIsMapOffline] = useState(false);
+  const [mapLibraryLoaded, setMapLibraryLoaded] = useState(false);
   
   // Admin & UI panel states
   const [isAdminOpen, setIsAdminOpen] = useState(false);
@@ -87,6 +92,70 @@ export default function App() {
       console.warn("Fullscreen error or not allowed:", err);
     }
   };
+
+  // 0. Progressive Yandex Maps custom dynamic script loader hook with offline timeout fallback
+  useEffect(() => {
+    // Check if ymaps is already loaded globally
+    if ((window as any).ymaps) {
+      setMapLibraryLoaded(true);
+      return;
+    }
+
+    // Check if script tag is already in the document to prevent duplicate loading
+    let script = document.querySelector('script[src*="api-maps.yandex.ru"]') as HTMLScriptElement;
+    let isNewlyCreated = false;
+
+    if (!script) {
+      script = document.createElement('script');
+      script.src = 'https://api-maps.yandex.ru/2.1/?lang=ru_RU';
+      script.type = 'text/javascript';
+      script.async = true;
+      isNewlyCreated = true;
+    }
+
+    // Timeout fallback: if script/ymaps doesn't respond within 2.5 seconds, trigger offline mode
+    const timeout = setTimeout(() => {
+      console.warn('Yandex Maps loading timed out. Switching to offline blueprint map.');
+      setIsMapOffline(true);
+    }, 2500);
+
+    const handleLoad = () => {
+      clearTimeout(timeout);
+      const ymaps = (window as any).ymaps;
+      if (ymaps) {
+        setMapLibraryLoaded(true);
+        setIsMapOffline(false);
+      } else {
+        setIsMapOffline(true);
+      }
+    };
+
+    const handleError = () => {
+      clearTimeout(timeout);
+      console.warn('Failed to load Yandex Maps script. Switching to offline blueprint map.');
+      setIsMapOffline(true);
+    };
+
+    script.addEventListener('load', handleLoad);
+    script.addEventListener('error', handleError);
+
+    if (isNewlyCreated) {
+      document.head.appendChild(script);
+    } else {
+      // If it exists but loaded already
+      if ((window as any).ymaps) {
+        handleLoad();
+      }
+    }
+
+    return () => {
+      clearTimeout(timeout);
+      if (script) {
+        script.removeEventListener('load', handleLoad);
+        script.removeEventListener('error', handleError);
+      }
+    };
+  }, []);
 
   // 1. Initial State Loading & Storage Fallback
   useEffect(() => {
@@ -343,6 +412,7 @@ export default function App() {
 
   // 6. Yandex Maps Rendering and Updating lifecycle
   useEffect(() => {
+    if (isMapOffline || !mapLibraryLoaded) return;
     // If we have Yandex script, initialize map container
     if (!mapContainerRef.current) return;
     const ymaps = (window as any).ymaps;
@@ -595,49 +665,60 @@ export default function App() {
 
           {/* Map display workspace and information overlays */}
           <main className="flex-1 h-full relative flex flex-col min-w-0">
-            
-            {/* The Yandex Map Container */}
-            <div id="map" ref={mapContainerRef} className="w-full h-full relative" style={{ minHeight: '350px' }}>
-              {/* Spinner loader while map SDK ready */}
-              <div className="absolute inset-0 bg-slate-950/85 backdrop-blur-sm z-10 flex items-center justify-center space-x-3 pointer-events-none transition-all duration-700 select-none" id="map-loading-pane">
-                <Loader2 className="w-6 h-6 text-blue-500 animate-spin" />
-                <span className="text-xs font-mono text-slate-400">ГЕНЕРАЦИЯ ГЕОКАРТЫ YANDEX MAPS...</span>
-              </div>
-            </div>
-
-            {/* Floating Top Cloud Sync Banner on the Map */}
-            <div className="absolute top-4 right-4 z-20 pointer-events-none">
-              <div className="bg-white/90 border border-slate-300 backdrop-blur rounded px-3 py-1 flex items-center gap-3 shadow-sm text-slate-700 font-mono">
-                <span className="text-[9px] text-slate-400 uppercase tracking-wider font-bold">ОБЛАЧНАЯ СИНХРОНИЗАЦИЯ:</span>
-                <span className="text-[10px] text-green-600 font-bold tracking-wider">ОБНОВЛЕНО</span>
-              </div>
-            </div>
-
-            {/* HIGH-DENSITY MAP LEGEND CARD (Exactly matching template) */}
-            <div className="absolute bottom-4 left-4 w-52 bg-white/95 backdrop-blur border border-slate-300 rounded shadow-xl p-3 z-20 pointer-events-auto">
-              <h4 className="text-[10px] font-mono font-bold text-slate-800 tracking-wider uppercase mb-1 flex items-center gap-1.5">
-                <Info className="w-3.5 h-3.5 text-[#00509A]" />
-                <span>ЛЕГЕНДА КАРТЫ</span>
-              </h4>
-              <p className="text-[10px] text-slate-600 leading-snug">
-                Наведите на точку на карте, чтобы увидеть детали местоположения и краткую сводку по предприятию.
-              </p>
-              <div className="mt-2.5 pt-2 border-t border-slate-200/70 flex flex-col gap-1 text-[9px] font-mono text-slate-500">
-                <div className="flex items-center gap-1.5">
-                  <div className="w-2.5 h-2.5 bg-[#00509A] rounded-full shadow-[0_0_4px_rgba(0,80,154,0.3)]"></div>
-                  <span className="font-medium">ТПУ</span>
+            {isMapOffline ? (
+              <OfflineMap
+                stations={stations}
+                activeDetails={activeDetails}
+                setActiveDetails={setActiveDetails}
+                searchQuery={searchQuery}
+                filterType={filterType}
+                theme={theme}
+              />
+            ) : (
+              <>
+                {/* The Yandex Map Container */}
+                <div id="map" ref={mapContainerRef} className="w-full h-full relative" style={{ minHeight: '350px' }}>
+                  {/* Spinner loader while map SDK ready */}
+                  <div className="absolute inset-0 bg-slate-950/85 backdrop-blur-sm z-10 flex items-center justify-center space-x-3 pointer-events-none transition-all duration-700 select-none" id="map-loading-pane">
+                    <Loader2 className="w-6 h-6 text-blue-500 animate-spin" />
+                    <span className="text-xs font-mono text-slate-400">ГЕНЕРАЦИЯ ГЕОКАРТЫ YANDEX MAPS...</span>
+                  </div>
                 </div>
-                <div className="flex items-center gap-1.5">
-                  <div className="w-2.5 h-2.5 bg-[#00ADEF] rounded-full shadow-[0_0_4px_rgba(0,173,239,0.3)]"></div>
-                  <span className="font-medium font-bold text-[#00509A]">Росатом</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <div className="w-2.5 h-2.5 bg-purple-600 rounded-full shadow-[0_0_4px_rgba(147,51,234,0.3)]"></div>
-                  <span className="font-medium">Совместные</span>
-                </div>
-              </div>
-            </div>
 
+                {/* Floating Top Cloud Sync Banner on the Map */}
+                <div className="absolute top-4 right-4 z-20 pointer-events-none">
+                  <div className="bg-white/90 border border-slate-300 backdrop-blur rounded px-3 py-1 flex items-center gap-3 shadow-sm text-slate-700 font-mono">
+                    <span className="text-[9px] text-slate-400 uppercase tracking-wider font-bold">ОБЛАЧНАЯ СИНХРОНИЗАЦИЯ:</span>
+                    <span className="text-[10px] text-green-600 font-bold tracking-wider">ОБНОВЛЕНО</span>
+                  </div>
+                </div>
+
+                {/* HIGH-DENSITY MAP LEGEND CARD (Exactly matching template) */}
+                <div className="absolute bottom-4 left-4 w-52 bg-white/95 backdrop-blur border border-slate-300 rounded shadow-xl p-3 z-20 pointer-events-auto">
+                  <h4 className="text-[10px] font-mono font-bold text-slate-800 tracking-wider uppercase mb-1 flex items-center gap-1.5">
+                    <Info className="w-3.5 h-3.5 text-[#00509A]" />
+                    <span>ЛЕГЕНДА КАРТЫ</span>
+                  </h4>
+                  <p className="text-[10px] text-slate-600 leading-snug">
+                    Наведите на точку на карте, чтобы увидеть детали местоположения и краткую сводку по предприятию.
+                  </p>
+                  <div className="mt-2.5 pt-2 border-t border-slate-200/70 flex flex-col gap-1 text-[9px] font-mono text-slate-500">
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-2.5 h-2.5 bg-[#00509A] rounded-full shadow-[0_0_4px_rgba(0,80,154,0.3)]"></div>
+                      <span className="font-medium">ТПУ</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-2.5 h-2.5 bg-[#00ADEF] rounded-full shadow-[0_0_4px_rgba(0,173,239,0.3)]"></div>
+                      <span className="font-medium font-bold text-[#00509A]">Росатом</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-2.5 h-2.5 bg-purple-600 rounded-full shadow-[0_0_4px_rgba(147,51,234,0.3)]"></div>
+                      <span className="font-medium">Совместные</span>
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
           </main>
         </div>
 

@@ -31,10 +31,10 @@ service cloud.firestore {
         && data.name is string 
         && data.name.size() > 0 
         && data.name.size() <= 200
-        && data.lat is number
+        && (data.lat is int || data.lat is float)
         && data.lat >= -90.0
         && data.lat <= 90.0
-        && data.lon is number
+        && (data.lon is int || data.lon is float)
         && data.lon >= -180.0
         && data.lon <= 180.0
         && data.shortInfo is string
@@ -43,7 +43,7 @@ service cloud.firestore {
         && data.fullInfo.size() <= 10000
         && (data.type == 'rosatom' || data.type == 'tpu' || data.type == 'joint')
         && (!('city' in data) || (data.city is string && data.city.size() <= 200))
-        && data.createdAt is number;
+        && (data.createdAt is int || data.createdAt is float);
     }
   }
 }
