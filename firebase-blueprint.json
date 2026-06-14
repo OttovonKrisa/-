@@ -1,0 +1,55 @@
+{
+  "entities": {
+    "Station": {
+      "title": "Station",
+      "description": "Enterprise object mapping a Rosatom or Tomsk Polytechnic University facility",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier of the station"
+        },
+        "name": {
+          "type": "string",
+          "description": "Name of the facility"
+        },
+        "lat": {
+          "type": "number",
+          "description": "Latitude geo-coordinate"
+        },
+        "lon": {
+          "type": "number",
+          "description": "Longitude geo-coordinate"
+        },
+        "shortInfo": {
+          "type": "string",
+          "description": "Brief informational summary of the facility"
+        },
+        "fullInfo": {
+          "type": "string",
+          "description": "Detailed description of the facility"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["rosatom", "tpu", "joint"],
+          "description": "Corporate or institutional ownership affiliation"
+        },
+        "city": {
+          "type": "string",
+          "description": "City or territory where this facility is located"
+        },
+        "createdAt": {
+          "type": "number",
+          "description": "Timestamp indicating when the object was added"
+        }
+      },
+      "required": ["id", "name", "lat", "lon", "shortInfo", "fullInfo", "type", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/stations/{stationId}": {
+      "schema": "Station",
+      "description": "Collection storing all registered map facilities"
+    }
+  }
+}

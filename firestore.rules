@@ -1,0 +1,49 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Global Safety Net (default deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Allow connection testing on /test documents
+    match /test/{docId} {
+      allow read, write: if true;
+    }
+
+    // Stations enforcement
+    match /stations/{stationId} {
+      allow read, list: if true; 
+
+      // Anyone with the valid schema can create/update/delete stations to enable cooperative editing of screen locations, with strict static size & range boundaries
+      allow create, update: if isValidId(stationId) && isValidStation(request.resource.data);
+      allow delete: if true;
+    }
+
+    // Helper functions for static schema integrity and coordinate safety guards
+    function isValidId(id) { 
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); 
+    }
+
+    function isValidStation(data) {
+      return (!('id' in data) || (data.id is string && data.id.size() <= 128))
+        && data.name is string 
+        && data.name.size() > 0 
+        && data.name.size() <= 200
+        && data.lat is number
+        && data.lat >= -90.0
+        && data.lat <= 90.0
+        && data.lon is number
+        && data.lon >= -180.0
+        && data.lon <= 180.0
+        && data.shortInfo is string
+        && data.shortInfo.size() <= 2000
+        && data.fullInfo is string
+        && data.fullInfo.size() <= 10000
+        && (data.type == 'rosatom' || data.type == 'tpu' || data.type == 'joint')
+        && (!('city' in data) || (data.city is string && data.city.size() <= 200))
+        && data.createdAt is number;
+    }
+  }
+}
